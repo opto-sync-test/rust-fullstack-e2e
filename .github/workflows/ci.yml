@@ -1,0 +1,29 @@
+name: Full-stack Rust Opto-Sync E2E
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+        with:
+          submodules: recursive
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@1.88.0
+        with:
+          toolchain: 1.88.0
+      - run: cargo test --locked --all-targets
+      - run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Verify immutable Opto-Sync source pins
+        run: |
+          test "$(git -C vendor/opto-sync-clients rev-parse HEAD)" = "$(python3 -c 'import json; print(json.load(open("opto-sync-pin.json"))["clientsCommit"])')"
+          test "$(git -C vendor/opto-sync-clients/syncer.c rev-parse HEAD)" = "$(python3 -c 'import json; print(json.load(open("opto-sync-pin.json"))["coreCommit"])')"
