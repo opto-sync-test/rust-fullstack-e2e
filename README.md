@@ -9,6 +9,12 @@ This repository exercises Opto-Sync on both sides of a Rust application:
   official Rust client dependency;
 - the test acknowledges the queue only after the network merge succeeds.
 
+A Tokio background worker also drains multiple logical desktop/server lanes in
+parallel. The integration proof starts that worker before Axum is reachable,
+then verifies bounded reconnect/replay and convergence of both lane edits into
+the authoritative document. Replaying a partially applied batch is safe
+because the OptoSync merge is idempotent.
+
 The complete proof is one process but crosses a real TCP socket. Run it with:
 
 ```sh

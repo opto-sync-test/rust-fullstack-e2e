@@ -10,6 +10,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use tokio::sync::Mutex;
 
+pub mod background;
+
 #[derive(Clone)]
 pub struct AppState {
     document: Arc<Mutex<Value>>,
