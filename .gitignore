@@ -5,3 +5,7 @@
 tmp/
 temp/
 *.log
+
+# Repository-local temporary data and authorized Git worktrees
+tmp/worktrees
+temp/worktrees
