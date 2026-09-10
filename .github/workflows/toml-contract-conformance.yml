@@ -1,0 +1,83 @@
+name: TOML contract conformance
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rpc-hybrid-profile:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out exact candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+          show-progress: false
+      - name: Install Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+      - name: Check out merged api-docs RPC authority and parser
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ORESoftware/api-docs
+          ref: 12127a82ff1c0c34096faaf6df1a2a8484ea2feb
+          path: .contract-tools/api-docs
+          persist-credentials: false
+          show-progress: false
+      - name: Verify immutable upstream source
+        run: test "$(git -C .contract-tools/api-docs rev-parse HEAD)" = "12127a82ff1c0c34096faaf6df1a2a8484ea2feb"
+      - name: Prove explicit target selection and ambiguous path failure
+        run: |
+          set -euo pipefail
+          tool=.contract-tools/api-docs/scripts/ores_rpc_config.py
+          python3 "$tool" --repo-root "$GITHUB_WORKSPACE" check
+          python3 "$tool" --repo-root "$GITHUB_WORKSPACE" resolve --target server > /tmp/server.json
+          python3 "$tool" --repo-root "$GITHUB_WORKSPACE" resolve --target client > /tmp/client.json
+          jq -e '.role == "server"' /tmp/server.json
+          jq -e '.role == "client" and .propagateHeaders == ["traceparent", "x-request-id"]' /tmp/client.json
+          if python3 "$tool" --repo-root "$GITHUB_WORKSPACE" resolve --path README.md; then
+            echo "same-root hybrid path inference must remain ambiguous" >&2
+            exit 1
+          fi
+      - name: Prove overlap opt-in and unsupported transport claims fail closed
+        run: |
+          set -euo pipefail
+          tool=.contract-tools/api-docs/scripts/ores_rpc_config.py
+          mkdir -p tmp/rpc-invalid
+          python3 - <<'PY'
+          from pathlib import Path
+          src = Path('.ores-rpc.toml').read_text()
+          Path('tmp/rpc-invalid/no-overlap-optin.toml').write_text(src.replace('allowOverlappingRoots = true\n', ''))
+          v2 = src.replace('rpcVersion = "v1"', 'rpcVersion = "v2"', 1).replace('transports = ["http"]', 'transports = ["nats"]', 1).replace('framing = "json"', 'framing = "frame"', 1)
+          Path('tmp/rpc-invalid/v2-nats.toml').write_text(v2)
+          PY
+          for f in tmp/rpc-invalid/*.toml; do
+            if python3 "$tool" --repo-root "$GITHUB_WORKSPACE" --manifest "$f" check; then
+              echo "invalid hybrid manifest was admitted: $f" >&2
+              exit 1
+            fi
+          done
+      - name: Re-run TJSV peer-authority admission in the test organization
+        uses: ORESoftware/typespec-json-schema-validator@d60d0d79d83e075077382623ec9e23a401ab601f
+        with:
+          typespec: .contract-tools/api-docs/contracts/ores-rpc-config/typespec/main.tsp
+          schema: .contract-tools/api-docs/contracts/ores-rpc-config/json-schema/ores-rpc-config.schema.json
+          mapping: .contract-tools/api-docs/contracts/ores-rpc-config/tjsv.mapping.json
+          report: .typespec-json-schema-validator/ores-rpc-config/report.json
+          sarif: .typespec-json-schema-validator/ores-rpc-config/report.sarif
+          contract_ir: .typespec-json-schema-validator/ores-rpc-config/contract-ir.json
+          output_dir: .typespec-json-schema-validator/ores-rpc-config/generated
+          int64_strategy: number
+          quiet: "false"
+      - name: Require zero-drift TJSV evidence
+        run: |
+          jq -e '.status == "passed" and .zeroUnexplainedFindings == true and .authorities.precedence == "none" and (.differential.summary.divergences // 0) == 0 and (.differential.summary.refusals // 0) == 0' .typespec-json-schema-validator/ores-rpc-config/report.json
+          jq -e '.status == "passed" and .admissible == true and .editableAuthority == false' .typespec-json-schema-validator/ores-rpc-config/contract-ir.json
