@@ -1,0 +1,21 @@
+schemaVersion = "ores.rpc.config.v1"
+repositoryMode = "hybrid"
+strict = true
+allowOverlappingRoots = true
+
+[[targets]]
+name = "server"
+role = "server"
+roots = ["."]
+rpcVersion = "v1"
+transports = ["http"]
+framing = "json"
+
+[[targets]]
+name = "client"
+role = "client"
+roots = ["."]
+rpcVersion = "v1"
+transports = ["http"]
+framing = "json"
+propagateHeaders = ["traceparent", "x-request-id"]
