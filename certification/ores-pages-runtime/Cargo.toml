@@ -13,3 +13,4 @@ ores-api-docs-macros = { path = "../../deps/api-docs/macros/rust" }
 
 [build-dependencies]
 ores-api-docs = { path = "../../deps/api-docs/rust" }
+sha2 = "0.10"
