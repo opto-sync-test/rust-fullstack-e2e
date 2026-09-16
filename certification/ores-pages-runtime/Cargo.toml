@@ -1,0 +1,15 @@
+[package]
+name = "ores-pages-runtime-smoke"
+version = "0.1.0"
+edition = "2021"
+publish = false
+build = "build.rs"
+
+[dependencies]
+axum = "0.8"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net"] }
+ores-api-docs-client = { path = "../../deps/api-docs/clients/rust" }
+ores-api-docs-macros = { path = "../../deps/api-docs/macros/rust" }
+
+[build-dependencies]
+ores-api-docs = { path = "../../deps/api-docs/rust" }
