@@ -41,10 +41,10 @@ jobs:
         with:
           toolchain: 1.88.0
 
-      - name: Compile generated Axum page runtime
+      - name: Compile finalized generated Axum page runtime
         run: cargo build --manifest-path certification/ores-pages-runtime/Cargo.toml
 
-      - name: Reject non-loopback reload injection and serve dynamic assets
+      - name: Reject non-loopback reload and verify browser bootstrap assets
         shell: bash
         run: |
           set -euo pipefail
@@ -65,8 +65,34 @@ jobs:
           ! grep -qi '^x-ores-dev-reload:' /tmp/root-invalid.headers
           ! grep -qi '^cache-control: no-store' /tmp/root-invalid.headers
 
+          wasm_sha="$(awk '/^ORES_TEST_USER_WASM_SHA / {print $2}' /tmp/ores-pages-invalid.log | tail -1)"
+          wasm_path="$(awk '/^ORES_TEST_USER_WASM_PATH / {print $2}' /tmp/ores-pages-invalid.log | tail -1)"
+          js_path="$(awk '/^ORES_TEST_USER_JS_PATH / {print $2}' /tmp/ores-pages-invalid.log | tail -1)"
+          test "${#wasm_sha}" -eq 64
+          test -n "$wasm_path"
+          test -n "$js_path"
+
           curl -fsS http://127.0.0.1:3210/users/alice -o /tmp/user-invalid.html
           grep -q 'runtime-user:alice' /tmp/user-invalid.html
+          grep -Fq "data-ores-wasm=\"$wasm_sha\"" /tmp/user-invalid.html
+          grep -Fq "src=\"$js_path\"" /tmp/user-invalid.html
+
+          curl -fsS -H "x-ores-wasm-have: $wasm_sha" \
+            http://127.0.0.1:3210/users/alice -o /tmp/user-already-active.html
+          grep -q 'runtime-user:alice' /tmp/user-already-active.html
+          ! grep -q 'data-ores-wasm' /tmp/user-already-active.html
+          ! grep -Fq "src=\"$js_path\"" /tmp/user-already-active.html
+
+          curl -fsS -D /tmp/js.headers "http://127.0.0.1:3210${js_path}" -o /tmp/page.js
+          grep -q 'oresHydratedUser' /tmp/page.js
+          grep -qi '^content-type: text/javascript; charset=utf-8' /tmp/js.headers
+          grep -qi '^cache-control: public, max-age=31536000, immutable' /tmp/js.headers
+
+          curl -fsS -D /tmp/wasm.headers "http://127.0.0.1:3210${wasm_path}" -o /tmp/page.wasm
+          test -s /tmp/page.wasm
+          grep -qi '^content-type: application/wasm' /tmp/wasm.headers
+          grep -qi '^cache-control: public, max-age=31536000, immutable' /tmp/wasm.headers
+
           curl -fsS http://127.0.0.1:3210/docs/intro -o /tmp/docs-invalid.html
           grep -q 'runtime-doc:intro' /tmp/docs-invalid.html
 
@@ -81,7 +107,7 @@ jobs:
           wait "$pid" 2>/dev/null || true
           trap - EXIT
 
-      - name: Accept loopback reload injection and disable HTML caching
+      - name: Accept loopback reload alongside hydrated browser page
         shell: bash
         run: |
           set -euo pipefail
@@ -103,8 +129,16 @@ jobs:
           grep -qi '^x-ores-dev-reload: 1' /tmp/root-loopback.headers
           grep -qi '^cache-control: no-store' /tmp/root-loopback.headers
 
-          curl -fsS http://127.0.0.1:3211/users/bob -o /tmp/user-loopback.html
+          wasm_sha="$(awk '/^ORES_TEST_USER_WASM_SHA / {print $2}' /tmp/ores-pages-loopback.log | tail -1)"
+          js_path="$(awk '/^ORES_TEST_USER_JS_PATH / {print $2}' /tmp/ores-pages-loopback.log | tail -1)"
+          curl -fsS -D /tmp/user-loopback.headers http://127.0.0.1:3211/users/bob -o /tmp/user-loopback.html
           grep -q 'runtime-user:bob' /tmp/user-loopback.html
+          grep -Fq "data-ores-wasm=\"$wasm_sha\"" /tmp/user-loopback.html
+          grep -Fq "src=\"$js_path\"" /tmp/user-loopback.html
+          grep -q 'src="http://127.0.0.1:3999/client.js"' /tmp/user-loopback.html
+          grep -q 'data-ores-dev-reload' /tmp/user-loopback.html
+          grep -qi '^x-ores-dev-reload: 1' /tmp/user-loopback.headers
+          grep -qi '^cache-control: no-store' /tmp/user-loopback.headers
 
           kill "$pid"
           wait "$pid" 2>/dev/null || true
