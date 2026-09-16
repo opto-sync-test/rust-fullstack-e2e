@@ -67,6 +67,9 @@ jobs:
 
           curl -fsS http://127.0.0.1:3210/users/alice -o /tmp/user-invalid.html
           grep -q 'runtime-user:alice' /tmp/user-invalid.html
+          curl -fsS http://127.0.0.1:3210/docs/intro -o /tmp/docs-invalid.html
+          grep -q 'runtime-doc:intro' /tmp/docs-invalid.html
+
           css_path="$(grep -oE '/__ores/assets/page-[a-f0-9]{64}\.css' /tmp/user-invalid.html | head -1)"
           test -n "$css_path"
           curl -fsS -D /tmp/css.headers "http://127.0.0.1:3210${css_path}" -o /tmp/page.css
