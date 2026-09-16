@@ -2,11 +2,12 @@ use ores_api_docs_client::{PageContext, PageDocument, PageResult};
 use ores_api_docs_macros::ores_page;
 
 #[ores_page(
-    renderer = "mash",
-    delivery = "ssr_only",
+    renderer = "leptos",
+    delivery = "ssr_hydrate",
     render = "dynamic",
+    client = "client.rs",
     title = "Runtime user",
-    tags("opto-sync-test", "runtime", "dynamic")
+    tags("opto-sync-test", "runtime", "dynamic", "browser")
 )]
 pub async fn page(ctx: PageContext) -> PageResult {
     let id = ctx
