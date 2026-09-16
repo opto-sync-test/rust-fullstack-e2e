@@ -1,0 +1,108 @@
+name: ores pages runtime
+
+on:
+  push:
+    branches:
+      - test/ores-pages-runtime
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: opto-sync-test-ores-pages-runtime
+  cancel-in-progress: true
+
+jobs:
+  runtime:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/.ores-runtime-target
+    steps:
+      - name: Check out runtime consumer
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          show-progress: false
+
+      - name: Check out api-docs page authority
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ORESoftware/api-docs
+          ref: DEN-3960-rust-fs-routing
+          path: deps/api-docs
+          persist-credentials: false
+          show-progress: false
+
+      - name: Install Rust 1.88.0
+        uses: dtolnay/rust-toolchain@4be7066ada62dd38de10e7b70166bc74ed198c30
+        with:
+          toolchain: 1.88.0
+
+      - name: Compile generated Axum page runtime
+        run: cargo build --manifest-path certification/ores-pages-runtime/Cargo.toml
+
+      - name: Reject non-loopback reload injection and serve dynamic assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          bin="$CARGO_TARGET_DIR/debug/ores-pages-runtime-smoke"
+          ORES_RUNTIME_ADDR=127.0.0.1:3210 \
+          ORES_STACK_DEV_RELOAD_SCRIPT=https://example.com/client.js \
+            "$bin" > /tmp/ores-pages-invalid.log 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 60); do
+            if curl -fsS -D /tmp/root-invalid.headers http://127.0.0.1:3210/ -o /tmp/root-invalid.html; then
+              break
+            fi
+            sleep 1
+          done
+          grep -q 'runtime-home' /tmp/root-invalid.html
+          ! grep -q 'data-ores-dev-reload' /tmp/root-invalid.html
+          ! grep -qi '^x-ores-dev-reload:' /tmp/root-invalid.headers
+          ! grep -qi '^cache-control: no-store' /tmp/root-invalid.headers
+
+          curl -fsS http://127.0.0.1:3210/users/alice -o /tmp/user-invalid.html
+          grep -q 'runtime-user:alice' /tmp/user-invalid.html
+          css_path="$(grep -oE '/__ores/assets/page-[a-f0-9]{64}\.css' /tmp/user-invalid.html | head -1)"
+          test -n "$css_path"
+          curl -fsS -D /tmp/css.headers "http://127.0.0.1:3210${css_path}" -o /tmp/page.css
+          grep -q 'font-family: system-ui' /tmp/page.css
+          grep -qi '^content-type: text/css; charset=utf-8' /tmp/css.headers
+          grep -qi '^cache-control: public, max-age=31536000, immutable' /tmp/css.headers
+
+          kill "$pid"
+          wait "$pid" 2>/dev/null || true
+          trap - EXIT
+
+      - name: Accept loopback reload injection and disable HTML caching
+        shell: bash
+        run: |
+          set -euo pipefail
+          bin="$CARGO_TARGET_DIR/debug/ores-pages-runtime-smoke"
+          ORES_RUNTIME_ADDR=127.0.0.1:3211 \
+          ORES_STACK_DEV_RELOAD_SCRIPT=http://127.0.0.1:3999/client.js \
+            "$bin" > /tmp/ores-pages-loopback.log 2>&1 &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          for attempt in $(seq 1 60); do
+            if curl -fsS -D /tmp/root-loopback.headers http://127.0.0.1:3211/ -o /tmp/root-loopback.html; then
+              break
+            fi
+            sleep 1
+          done
+          grep -q 'runtime-home' /tmp/root-loopback.html
+          grep -q 'src="http://127.0.0.1:3999/client.js"' /tmp/root-loopback.html
+          grep -q 'data-ores-dev-reload' /tmp/root-loopback.html
+          grep -qi '^x-ores-dev-reload: 1' /tmp/root-loopback.headers
+          grep -qi '^cache-control: no-store' /tmp/root-loopback.headers
+
+          curl -fsS http://127.0.0.1:3211/users/bob -o /tmp/user-loopback.html
+          grep -q 'runtime-user:bob' /tmp/user-loopback.html
+
+          kill "$pid"
+          wait "$pid" 2>/dev/null || true
+          trap - EXIT
