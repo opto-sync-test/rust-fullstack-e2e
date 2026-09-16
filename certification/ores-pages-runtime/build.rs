@@ -22,7 +22,7 @@ fn main() {
     for route in &manifest.routes {
         if let Some(css) = &route.css {
             fs::copy(
-                first.asset_dir.join(&css.output_file),
+                first_pass_dir.join("page-assets").join(&css.output_file),
                 final_assets.join(&css.output_file),
             )
             .expect("copy planned css to final assets");
